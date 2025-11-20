@@ -1,0 +1,64 @@
+name: Windows 11 Pro RDP 6 Hours
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win11-setup:
+    runs-on: windows-latest
+
+    steps:
+      - name: Enable RDP
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+          netsh advfirewall firewall add rule name="RDP3389" dir=in action=allow protocol=TCP localport=3389
+
+      - name: Create User (ngancute)
+        shell: powershell
+        run: |
+          $password = "ngan@2010"
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "ngancute" -Password $secure
+          Add-LocalGroupMember -Group "Administrators" -Member "ngancute"
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+
+      - name: Install Tailscale
+        shell: powershell
+        env:
+          TAILSCALE_AUTH: ${{ secrets.TAILSCALE_AUTH }}
+        run: |
+          $msi="$env:TEMP\tailscale.msi"
+          Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile $msi
+          Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey $env:TAILSCALE_AUTH --accept-routes --accept-dns
+          Start-Sleep -Seconds 8
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+
+      - name: Auto Install Discord
+        shell: powershell
+        run: |
+          Write-Host "Downloading Discord..."
+          $d="$env:TEMP\DiscordSetup.exe"
+          Invoke-WebRequest "https://discord.com/api/download?platform=win" -OutFile $d
+          Start-Process $d -ArgumentList "/silent" -Wait
+          Write-Host "Discord Installed!"
+
+      - name: Display RDP Info
+        shell: powershell
+        run: |
+          Write-Host "====================================="
+          Write-Host " Windows 11 Pro RDP Information"
+          Write-Host "-------------------------------------"
+          Write-Host " User: ngancute"
+          Write-Host " Password: $env:RDP_PASS"
+          Write-Host " IP Address: $env:TS_IP"
+          Write-Host " Port: 3389"
+          Write-Host "====================================="
+
+      - name: Keep Alive (6 hours)
+        run: |
+          timeout 21600
